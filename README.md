@@ -189,6 +189,7 @@ lists every runtime switch; the ones that matter here:
 | `RECOMP_PAD_LAYOUT=position` | Map buttons by position (Xbox layout) instead of by label. |
 | `RECOMP_RUMBLE=0` | No rumble. |
 | `NFSU1_LANGUAGE` | Game language: `en` (default), `fr`, `de`, `it`, `es`, `nl`, `sv`, or `auto` (the console's). See [Languages](#-languages). |
+| `NFSU1_AUTOLOAD=1` | At boot, load the most recent saved profile straight away (no "load?" questions) when there is one. |
 
 </details>
 
