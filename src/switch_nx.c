@@ -348,6 +348,14 @@ static void *log_flusher(void *arg)
     return NULL;
 }
 
+/* exit() (HalReturnToFirmware -> ExitProcess) runs atexit handlers but not
+ * switch_shutdown(): without this, a title that quits in its first half
+ * second (before the flusher's first pass) leaves an empty log. */
+static void log_flush_at_exit(void)
+{
+    log_flush(0);
+}
+
 static int log_open(void)
 {
     s_log_buf = (char *)malloc(LOG_CAP);
@@ -364,6 +372,7 @@ static int log_open(void)
         if (pthread_create(&t, NULL, log_flusher, NULL) == 0)
             pthread_detach(t);
     }
+    atexit(log_flush_at_exit);
     return 1;
 }
 

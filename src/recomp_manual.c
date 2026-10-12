@@ -1179,6 +1179,23 @@ void sub_000BCD20(void)
     sub_000BCD20_gen();
 }
 
+/* ── Disc authentication: accepted ───────────────────────────
+ *
+ * XapiInitProcess (0x00165692..0x001656CF) calls sub_0016546F, the DVD
+ * check: a MODE SENSE(10) of page 0x3E (answered by the kernel bridge),
+ * then, because the certificate's flags (+0x1D8) have bit 0 set, up to
+ * five READ DVD STRUCTURE (0xAD) pass-throughs whose security sector
+ * sub_001653B8 validates (timestamp at +0x4AB = certificate timestamp,
+ * SHA-1, signature). The bridge answers that IOCTL with STATUS_SUCCESS and
+ * no data, so all five fail, the check returns 0xC0000156 and the title
+ * calls XapiBootToDash(0, 0, 0) -> HalReturnToFirmware(2) before its first
+ * frame. There is no disc to authenticate: report the check as passed. */
+void sub_0016546F(void)
+{
+    eax = 0;                                    /* STATUS_SUCCESS */
+    esp += 4;                                   /* ret */
+}
+
 /* ── Manual function overrides ─────────────────────────────── */
 
 /*
