@@ -541,6 +541,93 @@ static void mkdir_p(const char* path)
         xbox_log(XBOX_LOG_WARN, XBOX_LOG_PATH, "mkdir %s: %s", tmp, strerror(errno));
 }
 
+/* The mods folder: "mods" beside the game dir. Each folder in it is one mod,
+ * holding files at the same paths as in the game dir; a file there takes the
+ * place of the game's file of the same path, and the game dir itself is never
+ * changed. mods/load-order.txt lists the mods to load, one folder name per
+ * line, later ones winning when two have the same file ('#' turns a line
+ * off). Without it every folder loads, in alphabetical order. */
+#define MAX_MODS 32
+static char s_mods[MAX_MODS][MAX_PATH];
+static int  s_mod_count;
+
+static int mod_name_cmp(const void *a, const void *b)
+{
+    return strcasecmp(*(const char * const *)a, *(const char * const *)b);
+}
+
+static void mods_add(const char *root, const char *name)
+{
+    struct stat st;
+
+    if (s_mod_count >= MAX_MODS)
+        return;
+    snprintf(s_mods[s_mod_count], MAX_PATH, "%s/%s", root, name);
+    if (stat(s_mods[s_mod_count], &st) == 0 && S_ISDIR(st.st_mode))
+        s_mod_count++;
+    else
+        xbox_log(XBOX_LOG_WARN, XBOX_LOG_PATH, "mods: no folder %s", name);
+}
+
+static void mods_init(void)
+{
+    char root[MAX_PATH], path[MAX_PATH], line[MAX_PATH];
+    char *slash;
+    FILE *f;
+    int i;
+
+    s_mod_count = 0;
+    snprintf(root, sizeof(root), "%s", s_game_dir);
+    slash = strrchr(root, '/');
+    if (!slash)
+        return;
+    snprintf(slash, sizeof(root) - (size_t)(slash - root), "/mods");
+
+    snprintf(path, sizeof(path), "%s/load-order.txt", root);
+    f = fopen(path, "r");
+    if (f) {
+        while (fgets(line, sizeof(line), f)) {
+            char *p = line, *e;
+
+            while (*p == ' ' || *p == '\t')
+                p++;
+            e = p + strlen(p);
+            while (e > p && (e[-1] == '\n' || e[-1] == '\r'
+                             || e[-1] == ' ' || e[-1] == '\t'))
+                *--e = '\0';
+            if (*p && *p != '#')
+                mods_add(root, p);
+        }
+        fclose(f);
+    } else {
+        DIR *d = opendir(root);
+        struct dirent *de;
+        static char names[MAX_MODS][256];
+        const char *sorted[MAX_MODS];
+        struct stat st;
+        int n = 0;
+
+        if (!d)
+            return;
+        while (n < MAX_MODS && (de = readdir(d)) != NULL) {
+            if (de->d_name[0] == '.')
+                continue;
+            snprintf(path, sizeof(path), "%s/%s", root, de->d_name);
+            if (stat(path, &st) == 0 && S_ISDIR(st.st_mode)) {
+                snprintf(names[n], sizeof(names[n]), "%s", de->d_name);
+                sorted[n] = names[n];
+                n++;
+            }
+        }
+        closedir(d);
+        qsort(sorted, (size_t)n, sizeof(sorted[0]), mod_name_cmp);
+        for (i = 0; i < n; i++)
+            mods_add(root, sorted[i]);
+    }
+    for (i = 0; i < s_mod_count; i++)
+        fprintf(stderr, "  [MODS] %d: %s\n", i + 1, s_mods[i]);
+}
+
 void xbox_path_init(const char* game_dir, const char* save_dir)
 {
     if (game_dir) {
@@ -569,6 +656,7 @@ void xbox_path_init(const char* game_dir, const char* save_dir)
 
     strip_trailing_slash(s_game_dir);
     strip_trailing_slash(s_save_dir);
+    mods_init();
 
     /* Save-side directories and partition device images; see the Win32
      * xbox_path_init for why each has to exist before the title asks. */
@@ -752,6 +840,22 @@ translate:
                 host_path_buf[--n] = '\0';
         }
         fix_case(host_path_buf, strlen(base_dir));
+
+        /* A file of the game dir that a mod has: the last mod with it wins. */
+        if (base_dir == s_game_dir && !sub_dir && remainder_posix[0]) {
+            char modded[MAX_PATH];
+            struct stat st;
+
+            for (int i = s_mod_count - 1; i >= 0; i--) {
+                snprintf(modded, sizeof(modded), "%s/%s", s_mods[i], remainder_posix);
+                fix_case(modded, strlen(s_mods[i]));
+                if (stat(modded, &st) == 0 && S_ISREG(st.st_mode)) {
+                    fprintf(stderr, "  [MODS] %s\n", modded);
+                    snprintf(host_path_buf, buf_size, "%s", modded);
+                    break;
+                }
+            }
+        }
 
         XBOX_TRACE(XBOX_LOG_PATH, "%s -> %s", xbox_path, host_path_buf);
         return TRUE;
